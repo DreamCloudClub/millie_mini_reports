@@ -1,0 +1,20 @@
+{
+  "name": "millie_mini_reports",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "scrape": "node src/scraper.js",
+    "report": "node src/reporter.js",
+    "run": "node src/scraper.js && node src/reporter.js",
+    "test-feeds": "node src/test-feeds.js",
+    "manage-feeds": "node src/manage-feeds.js"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "@supabase/supabase-js": "^2.50.0",
+    "dotenv": "^16.4.0",
+    "jsdom": "^26.1.0",
+    "openai": "^4.0.0",
+    "rss-parser": "^3.13.0"
+  }
+}
