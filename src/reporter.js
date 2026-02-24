@@ -4,7 +4,8 @@
  * 1. Fetch unprocessed articles from original_articles
  * 2. Group by category
  * 3. Use OpenAI to synthesize into reports
- * 4. Insert into reports table
+ * 4. Generate TTS audio for each report
+ * 5. Insert into reports table with audio URL
  */
 
 import 'dotenv/config';
@@ -51,6 +52,76 @@ async function getOpenAIKey() {
   }
 
   return data.api_key;
+}
+
+// TTS Configuration
+const TTS_VOICE = 'nova';
+const TTS_MODEL = 'tts-1';
+const STORAGE_BUCKET = 'report-audio';
+
+/**
+ * Generate TTS audio using OpenAI API
+ * @param {string} text - Text to convert to speech
+ * @returns {Buffer|null} - Audio buffer or null on failure
+ */
+async function generateTTSAudio(text) {
+  try {
+    // Sanitize text for better TTS pronunciation
+    const sanitizedText = text
+      .replace(/°F/g, ' degrees Fahrenheit')
+      .replace(/°C/g, ' degrees Celsius')
+      .replace(/°/g, ' degrees')
+      .replace(/℉/g, ' degrees Fahrenheit')
+      .replace(/℃/g, ' degrees Celsius');
+
+    const response = await openai.audio.speech.create({
+      model: TTS_MODEL,
+      voice: TTS_VOICE,
+      input: sanitizedText,
+      response_format: 'mp3',
+    });
+
+    // Get audio as buffer
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (err) {
+    console.error('TTS generation error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Upload audio to Supabase storage and return public URL
+ * @param {Buffer} audioBuffer - Audio file buffer
+ * @param {string} reportId - Report ID for filename
+ * @returns {string|null} - Public URL or null on failure
+ */
+async function uploadAudioToStorage(audioBuffer, reportId) {
+  try {
+    const filename = `${reportId}.mp3`;
+
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(filename, audioBuffer, {
+        contentType: 'audio/mpeg',
+        upsert: true,
+      });
+
+    if (error) {
+      console.error('Storage upload error:', error.message);
+      return null;
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(filename);
+
+    return urlData?.publicUrl || null;
+  } catch (err) {
+    console.error('Upload error:', err.message);
+    return null;
+  }
 }
 
 /**
@@ -180,7 +251,8 @@ async function processArticles() {
     }
 
     // Insert report with original article's published_at, url, and image
-    const { error: insertError } = await supabase
+    // Use .select() to get the inserted report's ID
+    const { data: insertedReport, error: insertError } = await supabase
       .from('reports')
       .insert({
         title: report.title,
@@ -193,12 +265,39 @@ async function processArticles() {
         published_at: article.published_at || article.scraped_at,
         source_url: article.url,
         image_url: article.image_url || null
-      });
+      })
+      .select('id')
+      .single();
 
     if (insertError) {
       console.log(`  ✗ Insert error: ${insertError.message}`);
       failCount++;
     } else {
+      // Generate TTS audio for the report
+      // Combine title and content for full audio
+      const ttsText = `${report.title}. ${report.content}`;
+      console.log(`  ⏳ Generating audio...`);
+
+      const audioBuffer = await generateTTSAudio(ttsText);
+      let audioUrl = null;
+
+      if (audioBuffer) {
+        audioUrl = await uploadAudioToStorage(audioBuffer, insertedReport.id);
+
+        if (audioUrl) {
+          // Update report with audio URL
+          await supabase
+            .from('reports')
+            .update({ audio_url: audioUrl })
+            .eq('id', insertedReport.id);
+          console.log(`  🔊 Audio uploaded`);
+        } else {
+          console.log(`  ⚠ Audio upload failed (report saved without audio)`);
+        }
+      } else {
+        console.log(`  ⚠ TTS generation failed (report saved without audio)`);
+      }
+
       console.log(`  ✓ [${report.subcategory || 'general'}] "${report.title.substring(0, 45)}..."`);
       successCount++;
 
@@ -211,6 +310,43 @@ async function processArticles() {
   }
 
   console.log(`\n✓ ${successCount} reports created, ${failCount} failed`);
+}
+
+/**
+ * Ensure storage bucket exists for report audio
+ */
+async function ensureStorageBucket() {
+  try {
+    // Check if bucket exists by listing buckets
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+
+    if (listError) {
+      console.error('Failed to list storage buckets:', listError.message);
+      return false;
+    }
+
+    const bucketExists = buckets?.some(b => b.name === STORAGE_BUCKET);
+
+    if (!bucketExists) {
+      // Create the bucket with public access
+      const { error: createError } = await supabase.storage.createBucket(STORAGE_BUCKET, {
+        public: true,
+        fileSizeLimit: 10485760, // 10MB max
+      });
+
+      if (createError) {
+        console.error('Failed to create storage bucket:', createError.message);
+        return false;
+      }
+
+      console.log(`Created storage bucket: ${STORAGE_BUCKET}`);
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Storage bucket check error:', err.message);
+    return false;
+  }
 }
 
 /**
@@ -230,6 +366,14 @@ async function main() {
 
   openai = new OpenAI({ apiKey });
   console.log('OpenAI client initialized from database config');
+
+  // Ensure storage bucket exists for audio files
+  const bucketReady = await ensureStorageBucket();
+  if (!bucketReady) {
+    console.warn('Warning: Storage bucket not available - reports will be created without audio');
+  } else {
+    console.log(`Audio storage ready (bucket: ${STORAGE_BUCKET}, voice: ${TTS_VOICE})`);
+  }
 
   await processArticles();
 
