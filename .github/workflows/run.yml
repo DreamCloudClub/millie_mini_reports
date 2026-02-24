@@ -2,13 +2,14 @@ name: News Pipeline
 
 on:
   schedule:
-    # Runs every 30 minutes
-    - cron: '*/30 * * * *'
+    # Runs every 4 hours
+    - cron: '0 */4 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
   pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # Kill job if it runs longer than 30 minutes
 
     steps:
       - name: Checkout repository
@@ -24,12 +25,14 @@ jobs:
         run: npm ci
 
       - name: Run scraper
+        timeout-minutes: 10
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npm run scrape
 
       - name: Run reporter
+        timeout-minutes: 15
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
