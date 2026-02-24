@@ -6,10 +6,15 @@ on:
     - cron: '0 */2 * * *'
   workflow_dispatch: # Allow manual trigger
 
+# Only allow one pipeline to run at a time - prevents duplicate reports
+concurrency:
+  group: news-pipeline
+  cancel-in-progress: false
+
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # Kill job if it runs longer than 30 minutes
+    timeout-minutes: 45  # Kill job if it runs longer than 45 minutes
 
     steps:
       - name: Checkout repository
@@ -25,14 +30,14 @@ jobs:
         run: npm ci
 
       - name: Run scraper
-        timeout-minutes: 10
+        timeout-minutes: 15
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npm run scrape
 
       - name: Run reporter
-        timeout-minutes: 15
+        timeout-minutes: 25
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
