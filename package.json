@@ -5,7 +5,8 @@
   "scripts": {
     "scrape": "node src/scraper.js",
     "report": "node src/reporter.js",
-    "run": "node src/scraper.js && node src/reporter.js",
+    "cleanup": "node src/cleanup.js",
+    "run": "node src/scraper.js && node src/reporter.js && node src/cleanup.js",
     "test-feeds": "node src/test-feeds.js",
     "manage-feeds": "node src/manage-feeds.js"
   },
