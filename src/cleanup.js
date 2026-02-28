@@ -4,7 +4,7 @@
  * This calls the cleanup_expired_reports() function which:
  * - Deletes unsaved reports older than 48 hours
  * - Deletes ALL reports (even saved) older than 30 days
- * - Also cleans up original_articles older than 7 days
+ * - Also cleans up original_articles older than 48 hours
  */
 
 import 'dotenv/config';
@@ -28,19 +28,19 @@ async function runCleanup() {
     console.log(`Cleaned up ${reportsDeleted ?? 0} expired reports`);
   }
 
-  // Cleanup old original articles
-  const { data: articlesDeleted, error: articlesError } = await supabase
-    .rpc('cleanup_old_original_articles');
+  // Cleanup old original articles (older than 48 hours)
+  const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+  const { data: deletedArticles, error: articlesError } = await supabase
+    .from('original_articles')
+    .delete()
+    .lt('scraped_at', twoDaysAgo)
+    .select('id');
 
   if (articlesError) {
-    // Function might not exist, that's okay
-    if (articlesError.message.includes('does not exist')) {
-      console.log('cleanup_old_original_articles function not found, skipping');
-    } else {
-      console.error('Error cleaning up articles:', articlesError.message);
-    }
+    console.error('Error cleaning up articles:', articlesError.message);
   } else {
-    console.log(`Cleaned up ${articlesDeleted ?? 0} old articles`);
+    console.log(`Cleaned up ${deletedArticles?.length ?? 0} old articles`);
   }
 
   console.log('Cleanup complete');
