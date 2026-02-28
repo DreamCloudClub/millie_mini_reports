@@ -29,18 +29,13 @@ async function runCleanup() {
   }
 
   // Cleanup old original articles (older than 48 hours)
-  const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-
-  const { data: deletedArticles, error: articlesError } = await supabase
-    .from('original_articles')
-    .delete()
-    .lt('scraped_at', twoDaysAgo)
-    .select('id');
+  const { data: articlesDeleted, error: articlesError } = await supabase
+    .rpc('cleanup_old_original_articles');
 
   if (articlesError) {
     console.error('Error cleaning up articles:', articlesError.message);
   } else {
-    console.log(`Cleaned up ${deletedArticles?.length ?? 0} old articles`);
+    console.log(`Cleaned up ${articlesDeleted ?? 0} old articles`);
   }
 
   console.log('Cleanup complete');
